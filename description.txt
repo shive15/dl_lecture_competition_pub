@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 ワークフローを更新した。
+=======
+- Base datasetクラスの内容をdatasetクラスにマージした。
+>>>>>>> origin/MEG-competition
