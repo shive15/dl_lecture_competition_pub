@@ -5,7 +5,7 @@ from statistics import mode
 
 from PIL import Image
 import numpy as np
-import pandas
+import pandas 
 import torch
 import torch.nn as nn
 import torchvision
@@ -130,8 +130,14 @@ class VQADataset(torch.utils.data.Dataset):
         """
         image = Image.open(f"{self.image_dir}/{self.df['image'][idx]}")
         image = self.transform(image)
+
+        
+
         question = np.zeros(len(self.idx2question) + 1)  # 未知語用の要素を追加
-        question_words = self.df["question"][idx].split(" ")
+
+        question_sentence = process_text(self.df["question"][idx])#質問文に前処理を実施 07162201
+
+        question_words = question_sentence.split(" ")
         for word in question_words:
             try:
                 question[self.question2idx[word]] = 1  # one-hot表現に変換
@@ -286,11 +292,14 @@ def ResNet18():
 def ResNet50():
     return ResNet(BottleneckBlock, [3, 4, 6, 3])
 
+def ResNet101():
+    return ResNet(BottleneckBlock, [3, 4, 23, 3])
+
 
 class VQAModel(nn.Module):
     def __init__(self, vocab_size: int, n_answer: int):
         super().__init__()
-        self.resnet = ResNet18()
+        self.resnet = ResNet50()
         self.text_encoder = nn.Linear(vocab_size, 512)
 
         self.fc = nn.Sequential(
@@ -359,14 +368,19 @@ def eval(model, dataloader, optimizer, criterion, device):
 
 
 def main():
+    print("Start")
     # deviceの設定
     set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
+    
     # dataloader / model
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor()
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(degrees=(-150,150)),
+    transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
+    transforms.GaussianBlur(kernel_size=(3, 9), sigma=(0.1, 3.0)),
+    transforms.ToTensor()
     ])
     train_dataset = VQADataset(df_path="./data/train.json", image_dir="./data/train", transform=transform)
     test_dataset = VQADataset(df_path="./data/valid.json", image_dir="./data/valid", transform=transform, answer=False)
@@ -378,9 +392,12 @@ def main():
     model = VQAModel(vocab_size=len(train_dataset.question2idx)+1, n_answer=len(train_dataset.answer2idx)).to(device)
 
     # optimizer / criterion
-    num_epoch = 20
+    num_epoch = 30 #変更した
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
+
+    losses = []
+    train_accs = []
 
     # train model
     for epoch in range(num_epoch):
@@ -390,6 +407,8 @@ def main():
               f"train loss: {train_loss:.4f}\n"
               f"train acc: {train_acc:.4f}\n"
               f"train simple acc: {train_simple_acc:.4f}")
+        losses.append(train_loss)
+        train_accs.append(train_acc)
 
     # 提出用ファイルの作成
     model.eval()
@@ -403,7 +422,14 @@ def main():
     submission = [train_dataset.idx2answer[id] for id in submission]
     submission = np.array(submission)
     torch.save(model.state_dict(), "model.pth")
-    np.save("submission.npy", submission)
+    np.save("submission__Result2.npy", submission)
+
+    data = pandas.DataFrame({
+    'Losses': losses,
+    'Train Accuracies': train_accs
+    })
+    filename = 'data_Result2.csv'
+    data.to_csv(filename, index=False)
 
 if __name__ == "__main__":
     main()
